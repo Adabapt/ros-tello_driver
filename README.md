@@ -13,9 +13,9 @@ Faire source devel/setup.bash
 
 ## Lancement:
 
-Pour lancer le driver :
-Allumer le drone
-Se connecter au drone sur son wifi TELLO-XXXXXX
+Pour lancer le driver :  
+Allumer le drone  
+Se connecter au drone sur son wifi TELLO-XXXXXX  
 Puis enfin : Roslaunch tello_driver tello_driver_node.launch
 
 ## Arborescence:
@@ -54,8 +54,8 @@ src -> contient la bibliothèque TelloPy SDK
 
 ### Tello_driver:
 
-La première node à lancer qui assure la liaison entre le drone et ROS.
-Il reçoie le flux vidéo, le status du drone etc
+La première node à lancer qui assure la liaison entre le drone et ROS.  
+Il reçoie le flux vidéo, le status du drone etc  
 Et envoie les commandes et la vitesse du drone.
 
 ### Keyboard_teleop:
