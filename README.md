@@ -20,10 +20,10 @@ Puis enfin : Roslaunch tello_driver tello_driver_node.launch
 
 ## Arborescence:
 
-cfg -> contient les configs du Tello EDU
-launch -> contient les fichiers .launch
-msg -> contient le message de status du Tello EDU
-nodes -> contient les exécutables Python
+cfg -> contient les configs du Tello EDU  
+launch -> contient les fichiers .launch  
+msg -> contient le message de status du Tello EDU  
+nodes -> contient les exécutables Python  
 src -> contient la bibliothèque TelloPy SDK
 
 ## Les topics:
@@ -60,22 +60,22 @@ Et envoie les commandes et la vitesse du drone.
 
 ### Keyboard_teleop:
 
-Mappage des commandes du drone sur des boutons du clavier.
-Il y a un bouton pour chaque commande tels que takeoff, land, emergency.
-takeoff permet de décoller
-land d'attérir
-emergency de couper tous les moteurs
+Mappage des commandes du drone sur des boutons du clavier.  
+Il y a un bouton pour chaque commande tels que takeoff, land, emergency.  
+takeoff permet de décoller  
+land d'attérir  
+emergency de couper tous les moteurs  
 Puis d'autres boutons pour jouer sur le topic /tello/cmd_vel qui règle la vitesse pour chaque direction et angle du drone.
 
 ### Autopilot:
 
-Node de déplacement et de rotation.
-Il suffit alors d'imbriquer les fonctions pour paramétrer des trajets.
+Node de déplacement et de rotation.  
+Il suffit alors d'imbriquer les fonctions pour paramétrer des trajets.  
 Il gère les consignes et la vitesse de la même façon que la node keyboar_teleop.
 
 ## Notes:
 
-Ce package est basé sur :
-https://github.com/appie-17/tello_driver.git 
+Ce package est basé sur :  
+https://github.com/appie-17/tello_driver.git  
 http://wiki.ros.org/tello_driver
 
