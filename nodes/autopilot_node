@@ -1,0 +1,382 @@
+#!/usr/bin/env python3
+import rospy
+import roslib
+import time
+import math
+
+from std_msgs.msg import Empty, UInt8, Bool
+from geometry_msgs.msg import Twist, Pose, Point, Quaternion
+from nav_msgs.msg import Odometry
+
+
+"""
+imprecision dans le positionnement relatif du drone (du a la nature du positionnement à partir des données d'odométrie du drone)
+revetement actuel sans décor pose problème au positionnement qui se base sur la caméra inférieur qui détermine la pos par rapport
+au déplacement des aspéritées du sol
+si autre système de positionnement
+ajouter le nouveau subscriber et modif dans la fonction deplacement principalement
+	faire le deplacement non pas sur la distance mais entre le point ou on est et le point ou on doit alle
+	regle les pbs d'orientation et de repere fixe
+"""
+
+################VAR GLOBALE########################
+
+precision_lin = 0.05 #5 cm d'écart par rapport à la distance voulue
+precision_ang = 5 #5 degre d'ecart par rapport à l'angle voulu
+
+################AUTOPILOT CLASS####################
+"""
+node pour l'autopilotage du drone
+"""
+class Autopilot:
+
+	"""
+	initialisation de la node de pilotage automatique du drone à partir de fonction de déplacement élementaire
+	"""
+	def __init__(self):
+
+		#position du drone
+		self.last_pos = Point()
+		self.last_ori = Quaternion()
+
+		#speed
+		self.speed = 0.6 #m/s
+		self.speed_alt = 0.4 #m/s
+		self.speed_ang = 0.7 #rad/s ~ 40deg/s
+		#self.speed_ang = 0.524 #rad/s ~ 30deg/s
+		#self.speed_ang = 0.35 #rad/s ~ 20deg/s
+		#self.speed_ang = 0.174 #rad/s ~ 10deg/s
+
+		# Start ROS node
+		rospy.init_node('autopilot_node')
+
+		# Load parameters
+		self.pub_takeoff = rospy.Publisher(
+			'takeoff', Empty,  queue_size=1, latch=False)
+		self.pub_land = rospy.Publisher(
+			'land', Empty,  queue_size=1, latch=False)
+		self.pub_emergency = rospy.Publisher(
+			'emergency', Empty,  queue_size=1, latch=False)
+		self.pub_cmd_out = rospy.Publisher(
+			'cmd_vel', Twist, queue_size=10, latch=False)
+		#changer ici + les axes si utilisation d'un autres topics
+		self.sub_odom = rospy.Subscriber(
+			'/tello/odom', Odometry, self.calculate_pos)
+		rospy.loginfo('autopilot node initialized')
+		time.sleep(1)
+
+	#récupère la position du drone de façon relative à partir des messages d'odométrie
+	#attention c'est une valeur approché risque d'erreur d'où la nécessité d'une solution de positionnement absolu
+	def calculate_pos(self, msg):
+		self.last_pos = msg.pose.pose.position
+		self.last_ori = msg.pose.pose.orientation
+
+	"""
+	fonction de décollage à lancer au début (arme le drone)
+	"""
+	def takeoff(self):
+		print("takeoff")
+		self.pub_takeoff.publish()
+		time.sleep(3)
+
+	"""
+	fonction pour attérir à lancer à la fin
+	"""
+	def land(self):
+		print("land")
+		self.pub_land.publish()
+
+	"""
+	consigne pour diriger le drone dans une position donnée
+	le repère n'est pas le même entre l'odométrie et la commande sur le drone
+	x en odométrie = y en commande = devant/derrière en terme de déplacement
+	repere odom : 
+	x (avant)
+	y (droite)
+	z (haut)
+	repere cmd_vel : 
+	x(droite)
+	y (avant)
+	z (haut)
+	"""
+	def move(self,direction):
+
+		cmd = Twist()
+
+		print("move : "+direction)
+
+		#position
+		if direction == "left":
+			cmd.linear.x = -self.speed
+			self.pub_cmd_out.publish(cmd)
+
+		if direction == "right":
+			cmd.linear.x = self.speed
+			self.pub_cmd_out.publish(cmd)
+
+		if direction == "forward":
+			cmd.linear.y = self.speed
+			self.pub_cmd_out.publish(cmd)
+
+		if direction == "back":
+			cmd.linear.y = -self.speed
+			self.pub_cmd_out.publish(cmd)
+
+		#altitude
+		if direction == "bottom":
+			cmd.linear.z = -self.speed_alt
+			self.pub_cmd_out.publish(cmd)
+
+		if direction == "top":
+			cmd.linear.z = self.speed_alt
+			self.pub_cmd_out.publish(cmd)
+
+	"""
+	fonction qui envoie une consigne de rotation au drone
+	"""
+	def rotate(self,direction):
+
+		cmd = Twist()
+
+		print("rotate : "+direction)
+
+		#rotation
+		if direction == "left":
+			cmd.angular.z = -self.speed_ang
+			self.pub_cmd_out.publish(cmd)
+
+		if direction == "right":
+			cmd.angular.z = self.speed_ang
+			self.pub_cmd_out.publish(cmd)
+
+
+	"""
+	fonction qui controle le deplacement du drone dans une direction sur une distance précise
+	le repère n'est pas le même entre l'odométrie et la commande sur le drone
+	 x en odométrie = y en commande = devant/derrière en terme de déplacement
+	pour un systeme de positionnement absolu changer pour une pos à atteindre de facon absolu et donc plus de probleme d'orientation
+	actuellement pour les trajectoires devant derrière gauche droite on regarde la distance parcouru sur les deux axes x et y
+	impliquant une plus grande imprecision car les perturbations seront prises en comptes dans le calculs de la distance parcourue
+	repere odom : 
+	x (avant)
+	y (droite)
+	z (haut)
+	repere cmd_vel : 
+	x(droite)
+	y (avant)
+	z (haut)
+	"""
+	def deplacement(self,direction,distance):
+
+
+		if direction == "forward":
+			pos_ini_x = self.last_pos.x
+			pos_ini_y = self.last_pos.y
+			reste = -distance
+			
+			while reste > precision_lin or reste < -precision_lin:
+				if reste < 0:
+					self.move("forward")
+				else:
+					self.move("back")
+				#si systeme parfait sans perturbation (car sinon le deuxieme terme qui n'est pas sensé varié créerai de l'erreur)
+				reste = abs(self.last_pos.x-pos_ini_x) + abs(self.last_pos.y - pos_ini_y) - distance
+				print("deplacement restant: "+str(reste))
+				print("~~~")
+
+		if direction == "back":
+			pos_ini_x = self.last_pos.x
+			pos_ini_y = self.last_pos.y
+			reste = -distance
+			while reste > precision_lin or reste < -precision_lin:
+				if reste < 0:
+					self.move("back")
+				else:
+					self.move("forward")
+				#si systeme parfait sans perturbation (car sinon le deuxieme terme qui n'est pas sensé varié créerai de l'erreur)
+				reste = abs(self.last_pos.x-pos_ini_x) + abs(self.last_pos.y - pos_ini_y) - distance
+				print("deplacement restant: "+str(reste))
+				print("~~~")
+
+		if direction == "left":
+			pos_ini_x = self.last_pos.x
+			pos_ini_y = self.last_pos.y
+			reste = -distance
+			while reste > precision_lin or reste < -precision_lin:
+				if reste < 0:
+					self.move("left")
+				else:
+					self.move("right")
+				#si systeme parfait sans perturbation (car sinon le deuxieme terme qui n'est pas sensé varié créerai de l'erreur)
+				reste = abs(self.last_pos.x-pos_ini_x) + abs(self.last_pos.y - pos_ini_y) - distance
+				print("deplacement restant: "+str(reste))
+				print("~~~")
+
+		if direction == "right":
+			pos_ini_x = self.last_pos.x
+			pos_ini_y = self.last_pos.y
+			reste = -distance
+			while reste > precision_lin or reste < -precision_lin:
+				if reste < 0:
+					self.move("right")
+				else:
+					self.move("left")
+				#si systeme parfait sans perturbation (car sinon le deuxieme terme qui n'est pas sensé varié créerai de l'erreur)
+				reste = abs(self.last_pos.x-pos_ini_x) + abs(self.last_pos.y - pos_ini_y) - distance
+				print("deplacement restant: "+str(reste))
+				print("~~~")
+
+		#axe z positif vers le haut
+		if direction == "top":
+			pos_ini = self.last_pos.z
+			reste = -distance
+			while reste > precision_lin or reste < -precision_lin:
+				if reste < 0:
+					self.move("top")
+				else:
+					self.move("bottom")
+				reste = abs(self.last_pos.z-pos_ini) - distance
+				print("deplacement restant: "+str(reste))
+				print("~~~")
+
+		if direction == "bottom":
+			pos_ini = self.last_pos.z
+			reste = -distance
+			while reste > precision_lin or reste < -precision_lin:
+				if reste < 0:
+					self.move("bottom")
+				else:
+					self.move("top")
+				reste = abs(self.last_pos.z-pos_ini) - distance
+				print("deplacement restant: "+str(reste))
+				print("~~~")
+
+		cmd = Twist()
+		self.pub_cmd_out.publish(cmd)
+		time.sleep(1)
+
+	"""
+	on envoie l'angle qu'on veut ajouter à la valeur actuelle d'orientation et le sens de rotation droite ou gauche
+	si droite + l'angle si gauche - l'angle par rapport à l'angle initiale
+	si il dépasse il refera un tour complet je pense améliorable
+	la valeur d'angle mesurée par le tello est de la forme
+	0 90 180/-180 -90 0 en tournant vers la droite
+	"""
+	def rotation(self,direction,angle):
+
+		deg_x,deg_y,deg_z = euler_from_quaternion(self.last_ori)
+		if deg_z > 0:
+			ang_ini = deg_z
+		else:
+			ang_ini = deg_z+360
+
+		if direction == "right":
+			ang_fin = (ang_ini-angle)%360
+
+			while deg_z > ang_fin+precision_ang or deg_z < ang_fin-precision_ang:
+				self.rotate("right")
+				
+				deg_x,deg_y,deg_z = euler_from_quaternion(self.last_ori)
+				if deg_z > 0:
+					deg_z = deg_z
+				else:
+					deg_z = deg_z+360
+				print("angle final: "+ str(ang_fin))
+				print("angle actuel: "+str(deg_z))
+				print("~~~")
+
+		if direction == "left":
+			ang_fin = (ang_ini+angle)%360
+
+			while deg_z > ang_fin+precision_ang or deg_z < ang_fin-precision_ang:
+				self.rotate("left")
+				
+				deg_x,deg_y,deg_z = euler_from_quaternion(self.last_ori)
+				if deg_z > 0:
+					deg_z = deg_z
+				else:
+					deg_z = deg_z+360
+				print("angle final: "+ str(ang_fin))
+				print("angle actuel: "+str(deg_z))
+				print("~~~")
+
+
+		cmd = Twist()
+		self.pub_cmd_out.publish(cmd)
+		time.sleep(1)
+
+	#deplacement préprogrammé qui fait un carré et reviens à ça position de départ
+	def square1(self,distance):
+		for i in range(0,4):
+			self.deplacement("forward",distance)
+			self.rotation("right",90)
+
+	def square2(self,distance):
+		self.deplacement("forward",distance)
+		self.deplacement("right",distance)
+		self.deplacement("back",distance)
+		self.deplacement("left",distance)
+
+	def serpentin(self):
+		self.deplacement("forward",1)
+		self.rotation("right",90)
+		self.deplacement("forward",0.2)
+		self.rotation("right",90)
+		self.deplacement("forward",1)
+		self.rotation("left",90)
+		self.deplacement("forward",0.2)
+		self.rotation("left",90)
+		self.deplacement("forward",1)
+		self.rotation("right",90)
+		self.deplacement("forward",0.2)
+		self.rotation("right",90)
+		self.deplacement("forward",1)
+		self.rotation("right",90)
+		self.deplacement("forward",0.6)
+		self.rotation("right",90)
+
+######################AUTRES FONCTIONS#####################
+
+def euler_from_quaternion(orientation):
+	"""
+	Convert a quaternion into euler angles (roll, pitch, yaw)
+	roll is rotation around x in radians (counterclockwise)
+	pitch is rotation around y in radians (counterclockwise)
+	yaw is rotation around z in radians (counterclockwise)
+	"""
+
+	x=orientation.x
+	y=orientation.y
+	z=orientation.z
+	w=orientation.w
+
+	t0 = +2.0 * (w * x + y * z)
+	t1 = +1.0 - 2.0 * (x * x + y * y)
+	roll_x = math.atan2(t0, t1)
+
+	t2 = +2.0 * (w * y - z * x)
+	t2 = +1.0 if t2 > +1.0 else t2
+	t2 = -1.0 if t2 < -1.0 else t2
+	pitch_y = math.asin(t2)
+
+	t3 = +2.0 * (w * z + x * y)
+	t4 = +1.0 - 2.0 * (y * y + z * z)
+	yaw_z = math.atan2(t3, t4)
+
+	deg_x = math.degrees(roll_x)
+	deg_y = math.degrees(pitch_y)
+	deg_z = math.degrees(yaw_z)
+
+	return deg_x, deg_y, deg_z# in degrees
+
+####################MAIN################################
+
+if __name__ == '__main__':
+	try:
+		node = Autopilot()
+		node.takeoff()
+		node.square1(1)
+		node.land()
+
+	except rospy.ROSInterruptException:
+		pass

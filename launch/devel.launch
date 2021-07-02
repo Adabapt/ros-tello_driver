@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<launch>
+  <include file="$(find tello_driver)/launch/tello_node.launch" />
+  <include file="$(find tello_driver)/launch/key_teleop.launch" />
+  <include file="$(find tello_driver)/launch/logger.launch" />
+  <!-- 
+  <include file="$(find tello_driver)/launch/autopilot.launch" /> 
+  <include file="$(find tello_driver)/launch/tello_node_images.launch" />
+  <include file="$(find tello_driver)/launch/tello_node_h264.launch" />
+  -->
+</launch>

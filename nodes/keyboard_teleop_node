@@ -1,0 +1,196 @@
+#!/usr/bin/env python3
+import rospy
+import roslib
+import sys, select, termios, tty
+
+from std_msgs.msg import Empty, UInt8, Bool
+from geometry_msgs.msg import Twist
+
+todo = """
+Reading from the keyboard
+-------------------------
+Moving around:
+  z    
+q   d
+  s
+
+w : up (+z)
+x : down (-z)
+
+a : rota gauche
+e : rota droite
+
++ : speed +
+- : speed -
+
+c : speed angulaire +
+v : speed angulaire -
+
+& : emergency
+é : takeoff
+" : land
+
+anything else : stop
+
+
+CTRL-C to quit
+"""
+
+################KEYBOARD CLASS########################
+"""
+node pour le contrôle clavier du drone TELLO EDU
+"""
+class KeyboardTeleopNode:
+
+	"""
+	initialisation du node de contrôle à distance
+	"""
+	def __init__(self):
+
+		#speed
+		self.speed = 0.2 # en m/s
+		self.speed_ang = 0.2 # en rad/s
+
+		# Start ROS node
+		rospy.init_node('keyboard_teleop_node')
+
+		# Load parameters
+
+		self.pub_takeoff = rospy.Publisher(
+			'takeoff', Empty,  queue_size=1, latch=False)
+
+		self.pub_land = rospy.Publisher(
+			'land', Empty,  queue_size=1, latch=False)
+
+		self.pub_emergency = rospy.Publisher(
+			'emergency', Empty,  queue_size=1, latch=False)
+
+		self.pub_cmd_out = rospy.Publisher(
+			'cmd_vel', Twist, queue_size=10, latch=False)
+
+		rospy.loginfo('Keyboard teleop node initialized')
+
+	"""
+	fonction qui envoie une consigne de vitesse au drone en fonction de l'entrée clavier de l'utilisateur pour le contrôle à distance
+	"""
+	def key_cb(self):
+		
+		cmd = Twist()
+
+		#aquisition de la touche clavier
+		key = ''
+	
+		tty.setraw(sys.stdin.fileno())
+
+		rlist, _, _ = select.select([sys.stdin], [], [], 0.5)
+		if rlist:
+			key = sys.stdin.read(1)
+
+		termios.tcsetattr(sys.stdin, termios.TCSADRAIN, settings)
+
+		print(key)
+
+		#arrêt de la node si controle + c
+		if(key == '\x03'):
+			return 0
+
+		# Process emergency stop
+		if key == '&':
+			self.pub_emergency.publish()
+			print("emergency\n")
+			return 0
+
+		# Process takeoff
+		if key == 'é':
+			self.pub_takeoff.publish()
+			print("takeoff\n")
+
+		# Process land
+		if key == '"':
+			self.pub_land.publish()
+			print("land\n")
+		   			
+		#envoie de la bonne consigne pour se déplacer dans la direction voulu
+		if key == 'z':
+			cmd.linear.y = self.speed
+			print("speed forward (y): ")
+			print(cmd.linear.y)
+		if key == 's':
+			cmd.linear.y = -self.speed
+			print("speed back (y) : ")
+			print(cmd.linear.y)
+		if key == 'd':
+			cmd.linear.x = self.speed
+			print("speed right (x): ")
+			print(cmd.linear.x)
+		if key == 'q':
+			cmd.linear.x = -self.speed
+			print("speed left (x): ")
+			print(cmd.linear.x)
+		if key == 'w':
+			cmd.linear.z = self.speed
+			print("height + (z): ")
+			print(cmd.linear.z)
+		if key == 'x':
+			cmd.linear.z = -self.speed
+			print("height - (z): ")
+			print(cmd.linear.z)
+		if key == 'a':
+			cmd.angular.z = -self.speed_ang
+			print("rotation left (z): ")
+			print(cmd.angular.z)
+		if key == 'e':
+			cmd.angular.z = self.speed_ang
+			print("rotation right (z): ")
+			print(cmd.angular.z)
+
+		self.pub_cmd_out.publish(cmd)
+			
+		#si pas de touche on envoie une consigne nulle pour ne pas bouger
+		if key == '':
+			cmd.linear.x = 0
+			cmd.linear.y = 0
+			cmd.linear.z = 0
+			cmd.angular.z = 0
+			self.pub_cmd_out.publish(cmd)
+
+		#gestion de la vitesse
+		if key == '+':
+			self.speed = self.speed + 0.1
+			print("speed linear: ")
+			print(self.speed)
+		if key == '-':
+			self.speed = self.speed - 0.1
+			if self.speed < 0:
+				self.speed = 0
+			print("speed linear: ")
+			print(self.speed)
+		if key == 'c':
+			self.speed_ang = self.speed_ang + 0.1
+			print("speed angular: ")
+			print(self.speed_ang)
+		if key == 'v':
+			self.speed_ang = self.speed_ang - 0.1
+			if self.speed_ang < 0:
+				self.speed_ang = 0
+			print("speed angular: ")
+			print(self.speed_ang)
+
+
+		return 1
+
+####################MAIN###############################
+
+if __name__ == '__main__':
+	try:
+		
+		res = 1
+		settings = termios.tcgetattr(sys.stdin)
+		node = KeyboardTeleopNode()
+		print(todo)
+
+		while(res):
+			res = node.key_cb()
+
+	except rospy.ROSInterruptException:
+		pass

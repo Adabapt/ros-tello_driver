@@ -1,0 +1,9 @@
+<?xml version="1.0" ?>
+<launch>
+  <arg name="namespace" default="tello" />
+
+  <group ns="$(arg namespace)">
+    <node pkg="tello_driver" type="keyboard_teleop_node" name="keyboard_teleop" output="screen"/>
+  </group>
+
+</launch>
